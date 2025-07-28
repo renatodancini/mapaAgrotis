@@ -94,12 +94,29 @@ def buscar_na_web_bing(termo):
 
 def atualizar_produtos_api():
     headers = {"x-auth-token": API_TOKEN}
-    resp = requests.get(API_URL, headers=headers)
-    if resp.status_code == 200:
-        data = resp.json()
-        save_api_data_to_db(data)
-        return True
-    return False
+    try:
+        resp = requests.get(API_URL, headers=headers, timeout=30)
+        if resp.status_code == 200:
+            data = resp.json()
+            save_api_data_to_db(data)
+            return True
+        else:
+            st.error(f"Erro ao consultar a API! Status: {resp.status_code}")
+            try:
+                error_data = resp.json()
+                st.error(f"Detalhes do erro: {error_data}")
+            except:
+                st.error(f"Resposta da API: {resp.text[:200]}...")
+            return False
+    except requests.exceptions.Timeout:
+        st.error("Timeout ao consultar a API. O servidor demorou muito para responder.")
+        return False
+    except requests.exceptions.ConnectionError:
+        st.error("Erro de conexão com a API. Verifique sua conexão com a internet.")
+        return False
+    except Exception as e:
+        st.error(f"Erro inesperado ao consultar a API: {str(e)}")
+        return False
 
 # Lista de todas as abas possíveis
 ALL_PAGES = [
@@ -166,6 +183,33 @@ selected_page = st.sidebar.radio("Navegação", menu_labels, key="sidebar_menu")
 
 # --- Página Home ---
 if selected_page == "Home":
+    # Card de status da API
+    with st.container():
+        st.markdown("""
+            <div style='background: #fff; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.07); padding: 10px 16px 10px 16px; margin-bottom: 18px;'>
+        """, unsafe_allow_html=True)
+        st.subheader("Status da API")
+        if st.button("Verificar status da API", key="check_api_status"):
+            try:
+                headers = {"x-auth-token": API_TOKEN}
+                resp = requests.get(API_URL, headers=headers, timeout=10)
+                if resp.status_code == 200:
+                    st.success("✅ API está funcionando normalmente!")
+                else:
+                    st.error(f"❌ API retornou erro {resp.status_code}")
+                    try:
+                        error_data = resp.json()
+                        st.error(f"Detalhes: {error_data}")
+                    except:
+                        st.error(f"Resposta: {resp.text[:100]}...")
+            except requests.exceptions.Timeout:
+                st.error("⏰ Timeout - API demorou muito para responder")
+            except requests.exceptions.ConnectionError:
+                st.error("🌐 Erro de conexão - Verifique sua internet")
+            except Exception as e:
+                st.error(f"❌ Erro inesperado: {str(e)}")
+        st.markdown("""</div>""", unsafe_allow_html=True)
+    
     # Botão para download do template de carga
     with st.container():
         st.markdown("""
@@ -199,26 +243,38 @@ if selected_page == "Home":
                 # Barra de progresso para consulta e gravação da API
                 progress = st.progress(0, text="Consultando API e atualizando banco de dados...")
                 headers = {"x-auth-token": API_TOKEN}
-                resp = requests.get(API_URL, headers=headers)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    total = len(data)
-                    conn = get_conn()
-                    c = conn.cursor()
-                    for i, item in enumerate(data):
-                        cod = item.get('codMapaProduto')
-                        nome = item.get('nomeComum')
-                        principios = item.get('principiosAtivos')
-                        if cod:
-                            c.execute('''INSERT OR REPLACE INTO produtos (codMapaProduto, nomeComum, principiosAtivos) VALUES (?, ?, ?)''',
-                                      (cod, nome, principios))
-                        if total > 0:
-                            progress.progress(int((i+1)/total*100), text=f"Processando {i+1}/{total} produtos...")
-                    conn.commit()
-                    conn.close()
-                    progress.progress(100, text="Finalizado!")
-                else:
-                    st.error("Erro ao consultar a API!")
+                try:
+                    resp = requests.get(API_URL, headers=headers, timeout=30)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        total = len(data)
+                        conn = get_conn()
+                        c = conn.cursor()
+                        for i, item in enumerate(data):
+                            cod = item.get('codMapaProduto')
+                            nome = item.get('nomeComum')
+                            principios = item.get('principiosAtivos')
+                            if cod:
+                                c.execute('''INSERT OR REPLACE INTO produtos (codMapaProduto, nomeComum, principiosAtivos) VALUES (?, ?, ?)''',
+                                          (cod, nome, principios))
+                            if total > 0:
+                                progress.progress(int((i+1)/total*100), text=f"Processando {i+1}/{total} produtos...")
+                        conn.commit()
+                        conn.close()
+                        progress.progress(100, text="Finalizado!")
+                    else:
+                        st.error(f"Erro ao consultar a API! Status: {resp.status_code}")
+                        try:
+                            error_data = resp.json()
+                            st.error(f"Detalhes do erro: {error_data}")
+                        except:
+                            st.error(f"Resposta da API: {resp.text[:200]}...")
+                except requests.exceptions.Timeout:
+                    st.error("Timeout ao consultar a API. O servidor demorou muito para responder.")
+                except requests.exceptions.ConnectionError:
+                    st.error("Erro de conexão com a API. Verifique sua conexão com a internet.")
+                except Exception as e:
+                    st.error(f"Erro inesperado ao consultar a API: {str(e)}")
                 atualizar_mapa_upload_planilha()
                 st.success("Planilha e produtos atualizados!")
     # Card de pesquisa IA
