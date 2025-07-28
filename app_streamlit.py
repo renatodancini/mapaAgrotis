@@ -15,7 +15,7 @@ API_TOKEN = "2795f2059403445e8808325d29336b4ac1770daeaa96c25879cb6d1d7d8582a82f6
 
 # Funções auxiliares
 def get_conn():
-    return sqlite3.connect(DB_PATH)
+    return sqlite3.connect(DB_PATH, timeout=20.0)
 
 def init_db():
     conn = get_conn()
@@ -98,8 +98,13 @@ def atualizar_produtos_api():
         resp = requests.get(API_URL, headers=headers, timeout=30)
         if resp.status_code == 200:
             data = resp.json()
-            save_api_data_to_db(data)
-            return True
+            try:
+                save_api_data_to_db(data)
+                return True
+            except sqlite3.OperationalError as db_error:
+                st.error(f"Erro no banco de dados: {str(db_error)}")
+                st.info("Tente novamente em alguns segundos.")
+                return False
         else:
             st.error(f"Erro ao consultar a API! Status: {resp.status_code}")
             try:
@@ -248,20 +253,27 @@ if selected_page == "Home":
                     if resp.status_code == 200:
                         data = resp.json()
                         total = len(data)
-                        conn = get_conn()
-                        c = conn.cursor()
-                        for i, item in enumerate(data):
-                            cod = item.get('codMapaProduto')
-                            nome = item.get('nomeComum')
-                            principios = item.get('principiosAtivos')
-                            if cod:
-                                c.execute('''INSERT OR REPLACE INTO produtos (codMapaProduto, nomeComum, principiosAtivos) VALUES (?, ?, ?)''',
-                                          (cod, nome, principios))
-                            if total > 0:
-                                progress.progress(int((i+1)/total*100), text=f"Processando {i+1}/{total} produtos...")
-                        conn.commit()
-                        conn.close()
-                        progress.progress(100, text="Finalizado!")
+                        try:
+                            conn = get_conn()
+                            c = conn.cursor()
+                            for i, item in enumerate(data):
+                                cod = item.get('codMapaProduto')
+                                nome = item.get('nomeComum')
+                                principios = item.get('principiosAtivos')
+                                if cod:
+                                    c.execute('''INSERT OR REPLACE INTO produtos (codMapaProduto, nomeComum, principiosAtivos) VALUES (?, ?, ?)''',
+                                              (cod, nome, principios))
+                                if total > 0:
+                                    progress.progress(int((i+1)/total*100), text=f"Processando {i+1}/{total} produtos...")
+                            conn.commit()
+                            conn.close()
+                            progress.progress(100, text="Finalizado!")
+                        except sqlite3.OperationalError as db_error:
+                            st.error(f"Erro no banco de dados: {str(db_error)}")
+                            st.info("Tente novamente em alguns segundos.")
+                            progress.progress(100, text="Erro no banco de dados!")
+                            atualizar_mapa_upload_planilha()
+                            st.success("Planilha salva! Produtos não foram atualizados devido a erro no banco.")
                     else:
                         st.error(f"Erro ao consultar a API! Status: {resp.status_code}")
                         try:
