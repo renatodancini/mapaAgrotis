@@ -1,0 +1,64 @@
+# Ambientes virtuais
+venv/
+.venv/
+env/
+.env/
+
+# Arquivos de banco de dados SQLite
+*.db
+*.sqlite
+*.sqlite3
+
+# Arquivos temporários
+temp_files/
+*.tmp
+*.temp
+
+# Arquivos de cache Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Arquivos de distribuição
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Arquivos de IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Arquivos de sistema
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Arquivos de configuração local
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Arquivos Excel temporários
+*.xlsx.tmp
+*.xls.tmp 
