@@ -233,7 +233,7 @@ if selected_page == "Home":
         st.markdown("""
             <div style='background: #fff; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.07); padding: 16px 16px 8px 16px; margin-bottom: 18px;'>
         """, unsafe_allow_html=True)
-        uploaded_file_home = st.file_uploader("", type="xlsx", key="home_upload")
+        uploaded_file_home = st.file_uploader("Upload de planilha", type="xlsx", key="home_upload", label_visibility="collapsed")
         st.markdown("""</div>""", unsafe_allow_html=True)
         if uploaded_file_home:
             df_home = pd.read_excel(uploaded_file_home)
