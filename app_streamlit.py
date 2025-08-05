@@ -80,6 +80,57 @@ def atualizar_mapa_upload_planilha():
     conn.commit()
     conn.close()
 
+def buscar_na_api_agrotis(termo):
+    """Busca produtos diretamente na API da Agrotis"""
+    headers = {"x-auth-token": API_TOKEN}
+    try:
+        response = requests.get(API_URL, headers=headers, timeout=15)
+        if response.status_code == 200:
+            data = response.json()
+            resultados = []
+            
+            # Busca fuzzy nos dados da API
+            for item in data:
+                nome_comum = str(item.get('nomeComum', '')).lower()
+                principios_ativos = str(item.get('principiosAtivos', '')).lower()
+                cod_mapa = str(item.get('codMapaProduto', '')).lower()
+                termo_busca = termo.lower()
+                
+                # Calcula scores de similaridade
+                score_nome = fuzz.token_set_ratio(termo_busca, nome_comum)
+                score_principio = fuzz.token_set_ratio(termo_busca, principios_ativos)
+                score_codigo = fuzz.token_set_ratio(termo_busca, cod_mapa)
+                
+                # Pega o melhor score
+                score = max(score_nome, score_principio, score_codigo)
+                
+                # Se o score for maior que 50, inclui no resultado
+                if score > 50:
+                    resultados.append({
+                        'codMapaProduto': item.get('codMapaProduto', ''),
+                        'nomeComum': item.get('nomeComum', ''),
+                        'principiosAtivos': item.get('principiosAtivos', ''),
+                        'score': score
+                    })
+            
+            # Ordena por score (maior primeiro)
+            resultados.sort(key=lambda x: x['score'], reverse=True)
+            return resultados[:10]  # Retorna os 10 melhores resultados
+            
+        elif response.status_code == 401:
+            return [{"erro": "Erro de autenticação", "detalhes": "Token da API inválido ou expirado."}]
+        elif response.status_code == 503:
+            return [{"erro": "Serviço indisponível", "detalhes": "API da Agrotis temporariamente indisponível."}]
+        else:
+            return [{"erro": f"Erro {response.status_code}", "detalhes": f"Erro ao consultar a API da Agrotis: {response.status_code}"}]
+            
+    except requests.exceptions.Timeout:
+        return [{"erro": "Timeout", "detalhes": "A consulta à API da Agrotis demorou muito para responder."}]
+    except requests.exceptions.ConnectionError:
+        return [{"erro": "Erro de conexão", "detalhes": "Erro de conexão com a API da Agrotis. Verifique sua conexão com a internet."}]
+    except Exception as e:
+        return [{"erro": "Erro inesperado", "detalhes": f"Erro inesperado ao consultar a API da Agrotis: {str(e)}"}]
+
 def buscar_na_web_bing(termo):
     if not BING_API_CONFIGURED:
         return [{"title": "API do Bing não configurada", "url": "", "snippet": "Para usar a pesquisa na internet, configure a variável de ambiente BING_API_KEY com uma chave válida da API do Bing Search."}]
@@ -340,31 +391,84 @@ if selected_page == "Home":
                 3. **Reinicie a aplicação** após configurar a variável
                 """)
         
+        # Opções de busca
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            buscar_api = st.checkbox("🔍 Buscar na API da Agrotis", value=True, key="buscar_api_home")
+        with col2:
+            buscar_local = st.checkbox("💾 Buscar no banco local", value=True, key="buscar_local_home")
+        with col3:
+            buscar_web = st.checkbox("🌐 Buscar na internet", value=BING_API_CONFIGURED, key="buscar_web_home")
+        
         termo_ia_home = st.text_input("Pesquisar produtos (IA)", key="pesq_ia_home")
         if termo_ia_home:
-            conn = get_conn()
-            produtos = pd.read_sql_query("SELECT codMapaProduto, nomeComum, principiosAtivos FROM produtos", conn)
-            conn.close()
-            scored = []
-            for _, p in produtos.iterrows():
-                score_nome = fuzz.token_set_ratio(termo_ia_home.lower(), str(p['nomeComum']).lower())
-                score_principio = fuzz.token_set_ratio(termo_ia_home.lower(), str(p['principiosAtivos']).lower())
-                score = max(score_nome, score_principio)
-                if score > 50:
-                    scored.append((score, p))
-            scored.sort(key=lambda x: x[0], reverse=True)
-            resultados = [p[1] for p in scored]
-            if resultados:
-                st.write("Resultados encontrados no banco:")
-                st.dataframe(pd.DataFrame(resultados))
-            else:
-                st.write("Nenhum resultado interno encontrado. Veja resultados da internet:")
+            # Busca na API da Agrotis
+            if buscar_api:
+                st.subheader("🔍 Buscando na API da Agrotis...")
+                with st.spinner("Consultando API da Agrotis..."):
+                    resultados_api = buscar_na_api_agrotis(termo_ia_home)
+                
+                if resultados_api and 'erro' not in resultados_api[0]:
+                    st.success(f"✅ Encontrados {len(resultados_api)} resultados na API da Agrotis")
+                    
+                    # Cria DataFrame com os resultados
+                    df_resultados = pd.DataFrame(resultados_api)
+                    df_resultados = df_resultados[['codMapaProduto', 'nomeComum', 'principiosAtivos', 'score']]
+                    df_resultados.columns = ['Código Mapa', 'Nome Comum', 'Princípios Ativos', 'Score de Similaridade']
+                    
+                    st.dataframe(df_resultados, use_container_width=True)
+                    
+                    # Botão para salvar resultados no banco local
+                    if st.button("💾 Salvar resultados no banco local", key="salvar_api_home"):
+                        try:
+                            conn = get_conn()
+                            c = conn.cursor()
+                            for _, row in df_resultados.iterrows():
+                                c.execute('''INSERT OR REPLACE INTO produtos (codMapaProduto, nomeComum, principiosAtivos) 
+                                            VALUES (?, ?, ?)''', 
+                                         (row['Código Mapa'], row['Nome Comum'], row['Princípios Ativos']))
+                            conn.commit()
+                            conn.close()
+                            st.success("✅ Resultados salvos no banco local!")
+                        except Exception as e:
+                            st.error(f"❌ Erro ao salvar no banco: {str(e)}")
+                    
+                elif resultados_api and 'erro' in resultados_api[0]:
+                    st.error(f"❌ {resultados_api[0]['erro']}")
+                    st.info(f"ℹ️ {resultados_api[0]['detalhes']}")
+            
+            # Busca no banco local
+            if buscar_local:
+                st.subheader("💾 Buscando no banco local...")
+                conn = get_conn()
+                produtos = pd.read_sql_query("SELECT codMapaProduto, nomeComum, principiosAtivos FROM produtos", conn)
+                conn.close()
+                scored = []
+                for _, p in produtos.iterrows():
+                    score_nome = fuzz.token_set_ratio(termo_ia_home.lower(), str(p['nomeComum']).lower())
+                    score_principio = fuzz.token_set_ratio(termo_ia_home.lower(), str(p['principiosAtivos']).lower())
+                    score = max(score_nome, score_principio)
+                    if score > 50:
+                        scored.append((score, p))
+                scored.sort(key=lambda x: x[0], reverse=True)
+                resultados_local = [p[1] for p in scored]
+                if resultados_local:
+                    st.success(f"✅ Encontrados {len(resultados_local)} resultados no banco local")
+                    st.dataframe(pd.DataFrame(resultados_local))
+                else:
+                    st.info("ℹ️ Nenhum resultado encontrado no banco local.")
+            
+            # Busca na internet
+            if buscar_web and BING_API_CONFIGURED:
+                st.subheader("🌐 Resultados da internet:")
                 web_results = buscar_na_web_bing(termo_ia_home)
                 for w in web_results:
                     if w['url']:
                         st.markdown(f"[{w['title']}]({w['url']})  \n{w['snippet']}")
                     else:
                         st.markdown(f"**{w['title']}**  \n{w['snippet']}")
+            elif buscar_web and not BING_API_CONFIGURED:
+                st.info("ℹ️ Para ver resultados da internet, configure a API do Bing Search.")
         st.markdown("""</div>""", unsafe_allow_html=True)
     # Card do comparativo
     with st.container():
@@ -433,31 +537,84 @@ elif selected_page == "Pesquisa IA":
             3. **Reinicie a aplicação** após configurar a variável
             """)
     
+    # Opções de busca
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        buscar_api = st.checkbox("🔍 Buscar na API da Agrotis", value=True, key="buscar_api_pesq")
+    with col2:
+        buscar_local = st.checkbox("💾 Buscar no banco local", value=True, key="buscar_local_pesq")
+    with col3:
+        buscar_web = st.checkbox("🌐 Buscar na internet", value=BING_API_CONFIGURED, key="buscar_web_pesq")
+    
     termo_ia = st.text_input("Digite o termo ou pergunta para buscar produtos:", key="pesq_ia")
     if termo_ia:
-        conn = get_conn()
-        produtos = pd.read_sql_query("SELECT codMapaProduto, nomeComum, principiosAtivos FROM produtos", conn)
-        conn.close()
-        scored = []
-        for _, p in produtos.iterrows():
-            score_nome = fuzz.token_set_ratio(termo_ia.lower(), str(p['nomeComum']).lower())
-            score_principio = fuzz.token_set_ratio(termo_ia.lower(), str(p['principiosAtivos']).lower())
-            score = max(score_nome, score_principio)
-            if score > 50:
-                scored.append((score, p))
-        scored.sort(key=lambda x: x[0], reverse=True)
-        resultados = [p[1] for p in scored]
-        if resultados:
-            st.write("Resultados encontrados no banco:")
-            st.dataframe(pd.DataFrame(resultados))
-        else:
-            st.write("Nenhum resultado interno encontrado. Veja resultados da internet:")
+        # Busca na API da Agrotis
+        if buscar_api:
+            st.subheader("🔍 Buscando na API da Agrotis...")
+            with st.spinner("Consultando API da Agrotis..."):
+                resultados_api = buscar_na_api_agrotis(termo_ia)
+            
+            if resultados_api and 'erro' not in resultados_api[0]:
+                st.success(f"✅ Encontrados {len(resultados_api)} resultados na API da Agrotis")
+                
+                # Cria DataFrame com os resultados
+                df_resultados = pd.DataFrame(resultados_api)
+                df_resultados = df_resultados[['codMapaProduto', 'nomeComum', 'principiosAtivos', 'score']]
+                df_resultados.columns = ['Código Mapa', 'Nome Comum', 'Princípios Ativos', 'Score de Similaridade']
+                
+                st.dataframe(df_resultados, use_container_width=True)
+                
+                # Botão para salvar resultados no banco local
+                if st.button("💾 Salvar resultados no banco local", key="salvar_api_pesq"):
+                    try:
+                        conn = get_conn()
+                        c = conn.cursor()
+                        for _, row in df_resultados.iterrows():
+                            c.execute('''INSERT OR REPLACE INTO produtos (codMapaProduto, nomeComum, principiosAtivos) 
+                                        VALUES (?, ?, ?)''', 
+                                     (row['Código Mapa'], row['Nome Comum'], row['Princípios Ativos']))
+                        conn.commit()
+                        conn.close()
+                        st.success("✅ Resultados salvos no banco local!")
+                    except Exception as e:
+                        st.error(f"❌ Erro ao salvar no banco: {str(e)}")
+                
+            elif resultados_api and 'erro' in resultados_api[0]:
+                st.error(f"❌ {resultados_api[0]['erro']}")
+                st.info(f"ℹ️ {resultados_api[0]['detalhes']}")
+        
+        # Busca no banco local
+        if buscar_local:
+            st.subheader("💾 Buscando no banco local...")
+            conn = get_conn()
+            produtos = pd.read_sql_query("SELECT codMapaProduto, nomeComum, principiosAtivos FROM produtos", conn)
+            conn.close()
+            scored = []
+            for _, p in produtos.iterrows():
+                score_nome = fuzz.token_set_ratio(termo_ia.lower(), str(p['nomeComum']).lower())
+                score_principio = fuzz.token_set_ratio(termo_ia.lower(), str(p['principiosAtivos']).lower())
+                score = max(score_nome, score_principio)
+                if score > 50:
+                    scored.append((score, p))
+            scored.sort(key=lambda x: x[0], reverse=True)
+            resultados_local = [p[1] for p in scored]
+            if resultados_local:
+                st.success(f"✅ Encontrados {len(resultados_local)} resultados no banco local")
+                st.dataframe(pd.DataFrame(resultados_local))
+            else:
+                st.info("ℹ️ Nenhum resultado encontrado no banco local.")
+        
+        # Busca na internet
+        if buscar_web and BING_API_CONFIGURED:
+            st.subheader("🌐 Resultados da internet:")
             web_results = buscar_na_web_bing(termo_ia)
             for w in web_results:
                 if w['url']:
                     st.markdown(f"[{w['title']}]({w['url']})  \n{w['snippet']}")
                 else:
                     st.markdown(f"**{w['title']}**  \n{w['snippet']}")
+        elif buscar_web and not BING_API_CONFIGURED:
+            st.info("ℹ️ Para ver resultados da internet, configure a API do Bing Search.")
 
 # --- Página Configuração ---
 elif selected_page == "Configuração":
