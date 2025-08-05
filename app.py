@@ -31,7 +31,7 @@ template = '''
 '''
 
 API_URL = "https://hom-receituariosipal.agrotis.io/int/fito/api/produtos"
-API_TOKEN = "2795f2059403445e8808325d29336b4ac1770daeaa96c25879cb6d1d7d8582a82f65aeafb7d59366238b22be21ecece3d2093e3e98e1e5b4bd2c215d8a3ce95a"
+API_TOKEN = "e7e539f6ca09627a7552f1b72d0c6af2bc5f5267a6a06c3ad45f6699782170db56479d005634031c8bdf0315995e120fc76bd214252f5604b4c8ff6668233e38"
 TEMP_DIR = "temp_files"
 
 if not os.path.exists(TEMP_DIR):
