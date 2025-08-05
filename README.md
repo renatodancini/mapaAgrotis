@@ -74,6 +74,19 @@ O aplicativo estará disponível em: `http://localhost:8501`
 - **Endpoint**: `https://hom-receituariosipal.agrotis.io/int/fito/api/produtos`
 - **Token**: Configurado no código da aplicação
 
+### API do Bing Search (Opcional)
+Para usar a funcionalidade de pesquisa na internet, configure a API do Bing Search:
+
+1. **Obtenha uma chave** no [Microsoft Azure Portal](https://portal.azure.com)
+2. **Configure a variável de ambiente**:
+   ```bash
+   # Windows PowerShell
+   $env:BING_API_KEY="sua_chave_aqui"
+   ```
+3. **Reinicie a aplicação**
+
+📖 **Documentação completa**: Veja [CONFIGURACAO_API_BING.md](CONFIGURACAO_API_BING.md)
+
 ## Uso
 
 1. **Home**: Página principal com upload de planilhas e pesquisa

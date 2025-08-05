@@ -13,6 +13,9 @@ DB_PATH = 'produtos.db'
 API_URL = "https://hom-receituariosipal.agrotis.io/int/fito/api/produtos"
 API_TOKEN = "e7e539f6ca09627a7552f1b72d0c6af2bc5f5267a6a06c3ad45f6699782170db56479d005634031c8bdf0315995e120fc76bd214252f5604b4c8ff6668233e38"
 
+# Verificar se a chave da API do Bing está configurada
+BING_API_CONFIGURED = BING_API_KEY != 'SUA_CHAVE_AQUI' and BING_API_KEY.strip() != ''
+
 # Funções auxiliares
 def get_conn():
     return sqlite3.connect(DB_PATH, timeout=20.0)
@@ -78,19 +81,35 @@ def atualizar_mapa_upload_planilha():
     conn.close()
 
 def buscar_na_web_bing(termo):
+    if not BING_API_CONFIGURED:
+        return [{"title": "API do Bing não configurada", "url": "", "snippet": "Para usar a pesquisa na internet, configure a variável de ambiente BING_API_KEY com uma chave válida da API do Bing Search."}]
+    
     headers = {"Ocp-Apim-Subscription-Key": BING_API_KEY}
     params = {"q": termo, "textDecorations": True, "textFormat": "HTML", "count": 5}
-    response = requests.get(BING_ENDPOINT, headers=headers, params=params)
-    results = []
-    if response.status_code == 200:
-        data = response.json()
-        for item in data.get("webPages", {}).get("value", []):
-            results.append({
-                "title": item.get("name"),
-                "url": item.get("url"),
-                "snippet": item.get("snippet")
-            })
-    return results
+    try:
+        response = requests.get(BING_ENDPOINT, headers=headers, params=params, timeout=10)
+        results = []
+        if response.status_code == 200:
+            data = response.json()
+            for item in data.get("webPages", {}).get("value", []):
+                results.append({
+                    "title": item.get("name"),
+                    "url": item.get("url"),
+                    "snippet": item.get("snippet")
+                })
+        elif response.status_code == 401:
+            return [{"title": "Erro de autenticação", "url": "", "snippet": "Chave da API do Bing inválida. Verifique se a chave está correta."}]
+        elif response.status_code == 429:
+            return [{"title": "Limite excedido", "url": "", "snippet": "Limite de requisições da API do Bing foi excedido. Tente novamente mais tarde."}]
+        else:
+            return [{"title": f"Erro {response.status_code}", "url": "", "snippet": f"Erro ao consultar a API do Bing: {response.status_code}"}]
+        return results
+    except requests.exceptions.Timeout:
+        return [{"title": "Timeout", "url": "", "snippet": "A consulta à API do Bing demorou muito para responder."}]
+    except requests.exceptions.ConnectionError:
+        return [{"title": "Erro de conexão", "url": "", "snippet": "Erro de conexão com a API do Bing. Verifique sua conexão com a internet."}]
+    except Exception as e:
+        return [{"title": "Erro inesperado", "url": "", "snippet": f"Erro inesperado ao consultar a API do Bing: {str(e)}"}]
 
 def atualizar_produtos_api():
     headers = {"x-auth-token": API_TOKEN}
@@ -294,6 +313,33 @@ if selected_page == "Home":
         st.markdown("""
             <div style='background: #fff; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.07); padding: 16px 16px 8px 16px; margin-bottom: 18px;'>
         """, unsafe_allow_html=True)
+        
+        # Status da API do Bing
+        if not BING_API_CONFIGURED:
+            st.warning("⚠️ API do Bing não configurada")
+            st.info("Para usar a pesquisa na internet, configure a variável de ambiente BING_API_KEY.")
+            with st.expander("Como configurar a API do Bing"):
+                st.markdown("""
+                1. **Obtenha uma chave da API do Bing Search**:
+                   - Acesse [Microsoft Azure Portal](https://portal.azure.com)
+                   - Crie um recurso de Bing Search v7
+                   - Copie a chave de acesso
+                
+                2. **Configure a variável de ambiente**:
+                   ```bash
+                   # Windows PowerShell
+                   $env:BING_API_KEY="sua_chave_aqui"
+                   
+                   # Windows CMD
+                   set BING_API_KEY=sua_chave_aqui
+                   
+                   # Linux/Mac
+                   export BING_API_KEY="sua_chave_aqui"
+                   ```
+                
+                3. **Reinicie a aplicação** após configurar a variável
+                """)
+        
         termo_ia_home = st.text_input("Pesquisar produtos (IA)", key="pesq_ia_home")
         if termo_ia_home:
             conn = get_conn()
@@ -315,7 +361,10 @@ if selected_page == "Home":
                 st.write("Nenhum resultado interno encontrado. Veja resultados da internet:")
                 web_results = buscar_na_web_bing(termo_ia_home)
                 for w in web_results:
-                    st.markdown(f"[{w['title']}]({w['url']})  \n{w['snippet']}")
+                    if w['url']:
+                        st.markdown(f"[{w['title']}]({w['url']})  \n{w['snippet']}")
+                    else:
+                        st.markdown(f"**{w['title']}**  \n{w['snippet']}")
         st.markdown("""</div>""", unsafe_allow_html=True)
     # Card do comparativo
     with st.container():
@@ -357,6 +406,33 @@ if selected_page == "Home":
 # --- Página Pesquisa IA ---
 elif selected_page == "Pesquisa IA":
     st.header("Pesquisa IA de Produtos")
+    
+    # Status da API do Bing
+    if not BING_API_CONFIGURED:
+        st.warning("⚠️ API do Bing não configurada")
+        st.info("Para usar a pesquisa na internet, configure a variável de ambiente BING_API_KEY.")
+        with st.expander("Como configurar a API do Bing"):
+            st.markdown("""
+            1. **Obtenha uma chave da API do Bing Search**:
+               - Acesse [Microsoft Azure Portal](https://portal.azure.com)
+               - Crie um recurso de Bing Search v7
+               - Copie a chave de acesso
+            
+            2. **Configure a variável de ambiente**:
+               ```bash
+               # Windows PowerShell
+               $env:BING_API_KEY="sua_chave_aqui"
+               
+               # Windows CMD
+               set BING_API_KEY=sua_chave_aqui
+               
+               # Linux/Mac
+               export BING_API_KEY="sua_chave_aqui"
+               ```
+            
+            3. **Reinicie a aplicação** após configurar a variável
+            """)
+    
     termo_ia = st.text_input("Digite o termo ou pergunta para buscar produtos:", key="pesq_ia")
     if termo_ia:
         conn = get_conn()
@@ -378,7 +454,10 @@ elif selected_page == "Pesquisa IA":
             st.write("Nenhum resultado interno encontrado. Veja resultados da internet:")
             web_results = buscar_na_web_bing(termo_ia)
             for w in web_results:
-                st.markdown(f"[{w['title']}]({w['url']})  \n{w['snippet']}")
+                if w['url']:
+                    st.markdown(f"[{w['title']}]({w['url']})  \n{w['snippet']}")
+                else:
+                    st.markdown(f"**{w['title']}**  \n{w['snippet']}")
 
 # --- Página Configuração ---
 elif selected_page == "Configuração":
